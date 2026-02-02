@@ -8,6 +8,7 @@ RUN corepack enable
 
 FROM base as source
 RUN git clone https://github.com/openclaw/openclaw.git /app
+RUN cd /app && git rev-parse HEAD > git-rev.txt && git log -n 20 > git-log.txt
 
 # --- Stage 2: Prod Dependencies ---
 FROM base AS prod-deps
@@ -66,6 +67,8 @@ COPY --from=builder /app/extensions /app/extensions
 COPY --from=builder /app/skills /app/skills
 COPY --from=builder /app/scripts /app/scripts
 
+COPY --from=source /app/git-rev.txt /app/git-rev.txt
+COPY --from=source /app/git-log.txt /app/git-log.txt
 # Install basic tools + Filebrowser + TTYD
 RUN curl -s "https://dl.google.com/go/go1.25.6.linux-amd64.tar.gz" | tar -C /usr/local -xz && ln -s /usr/local/go/bin/go /usr/bin/go
 
@@ -81,10 +84,11 @@ RUN npm install -g pnpm && npm install -g @google/gemini-cli
 # Copy custom startup script (Assuming you placed it in scripts/ locally)
 # If not, you can create it via RUN command here:
 COPY start-workspace.sh /app/start-workspace.sh
-RUN chmod +x /app/start-workspace.sh
+COPY init-workspace.sh /app/init-workspace.sh
+RUN chmod +x /app/start-workspace.sh /app/init-workspace.sh
 
 # Create non-root user (node user exists in image)
 USER node
 
 # Default command
-CMD ["/bin/sh", "/app/start-workspace.sh"]
+CMD ["/bin/sh", "/app/init-workspace.sh", "&&", "/bin/sh", "/app/start-workspace.sh"]
