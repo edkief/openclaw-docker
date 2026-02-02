@@ -1,5 +1,14 @@
 # OpenClaw augmented Docker image
 
+## ⚠️ Security Warning: No Built-in Authentication
+
+**This image does NOT include any form of authentication.**
+
+Filebrowser, ttyd, and the OpenClaw gateway are exposed without password protection by default.
+We **strongly** expect a reverse proxy (like Nginx, Traefik, or an Ingress Controller with OAuth2 Proxy/Authelia) to handle authentication and authorization in front of this container.
+
+**If exposed publicly without a reverse proxy... Here be dragons! 🐉**
+
 This repository builds an **augmented OpenClaw Docker image** that bundles [OpenClaw](https://github.com/openclaw/openclaw) with **Filebrowser** and **ttyd**. A single container provides:
 
 | Service      | Port  | Description |
