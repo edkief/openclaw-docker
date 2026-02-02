@@ -1,5 +1,5 @@
 #!/bin/bash
-INIT_FILE="~/.workspace-initialized"
+INIT_FILE="/home/node/.workspace-initialized"
 
 if [ -f "$INIT_FILE" ]; then
   echo "Workspace already initialized"
@@ -7,15 +7,15 @@ if [ -f "$INIT_FILE" ]; then
 fi
 
 echo "Initializing workspace"
-mkdir -p ~/bin
-cat > ~/bin/openclaw <<'EOF'
+mkdir -p /home/node/bin
+cat > /home/node/bin/openclaw <<'EOF'
 #!/bin/sh
 exec node /app/dist/index.js "$@"
 EOF
 
-chmod +x ~/bin/openclaw
+chmod +x /home/node/bin/openclaw
 
-cat > ~/.bashrc <<'EOF'
+cat > /home/node/.bashrc <<'EOF'
 # Add local bin to PATH
 export PATH="$PATH:$HOME/bin"
 

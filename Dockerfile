@@ -91,4 +91,4 @@ RUN chmod +x /app/start-workspace.sh /app/init-workspace.sh
 USER node
 
 # Default command
-CMD ["/bin/sh", "/app/init-workspace.sh", "&&", "/bin/sh", "/app/start-workspace.sh"]
+CMD ["/bin/bash", "-c", "/app/init-workspace.sh && /app/start-workspace.sh"]
