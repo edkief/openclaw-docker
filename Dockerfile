@@ -69,15 +69,22 @@ COPY --from=builder /app/scripts /app/scripts
 
 COPY --from=source /app/git-rev.txt /app/git-rev.txt
 COPY --from=source /app/git-log.txt /app/git-log.txt
+
 # Install basic tools + Filebrowser + TTYD
 RUN curl -s "https://dl.google.com/go/go1.25.6.linux-amd64.tar.gz" | tar -C /usr/local -xz && ln -s /usr/local/go/bin/go /usr/bin/go
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nano vim \
-    && curl -fsSL https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz | tar -xz -C /usr/local/bin filebrowser \
-    && chmod +x /usr/local/bin/filebrowser \
-    && curl -fsSL -o /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
-    && chmod +x /usr/local/bin/ttyd \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nano vim build-essential procps file git \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz | tar -xz -C /usr/local/bin filebrowser \
+    && chmod +x /usr/local/bin/filebrowser
+
+RUN curl -fsSL -o /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
+    && chmod +x /usr/local/bin/ttyd 
+
+## Requires another PVC if using default /home/linuxbrew install folder, disabling for now
+#RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+#    && chown -R 1000 /home/linuxbrew
 
 RUN npm install -g pnpm && npm install -g @google/gemini-cli
 
