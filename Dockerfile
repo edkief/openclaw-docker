@@ -76,11 +76,11 @@ RUN curl -s "https://dl.google.com/go/go1.25.6.linux-amd64.tar.gz" | tar -C /usr
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nano vim build-essential procps file git ffmpeg \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz | tar -xz -C /usr/local/bin filebrowser \
-    && chmod +x /usr/local/bin/filebrowser
+#RUN curl -fsSL https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz | tar -xz -C /usr/local/bin filebrowser \
+#    && chmod +x /usr/local/bin/filebrowser
 
-RUN curl -fsSL -o /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
-    && chmod +x /usr/local/bin/ttyd 
+#RUN curl -fsSL -o /usr/local/bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
+#    && chmod +x /usr/local/bin/ttyd 
 
 ## Requires another PVC if using default /home/linuxbrew install folder, disabling for now
 #RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
@@ -92,10 +92,11 @@ RUN npm install -g pnpm && npm install -g @google/gemini-cli
 # If not, you can create it via RUN command here:
 COPY start-workspace.sh /app/start-workspace.sh
 COPY init-workspace.sh /app/init-workspace.sh
-RUN chmod +x /app/start-workspace.sh /app/init-workspace.sh
+COPY start-openclaw.sh /app/start-openclaw.sh
+RUN chmod +x /app/start-workspace.sh /app/init-workspace.sh /app/start-openclaw.sh
 
 # Create non-root user (node user exists in image)
 USER node
 
 # Default command
-CMD ["/bin/bash", "-c", "/app/init-workspace.sh && /app/start-workspace.sh"]
+CMD ["/bin/bash", "-c", "/app/init-workspace.sh && /app/start-openclaw.sh"]
