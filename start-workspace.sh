@@ -24,5 +24,8 @@ echo "Starting TTYD on port 8082..."
 ttyd -p 8082 -W -t fontSize=14 bash &
 
 # Start OpenClaw
+echo "Verifying and fixing configuration..."
+node dist/index.js doctor --fix
 echo "Starting OpenClaw..."
 exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured
+
