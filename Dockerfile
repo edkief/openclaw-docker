@@ -1,14 +1,24 @@
 # Multi-stage Dockerfile for OpenClaw
 
+# pin base image
+#FROM node:22-bookworm@sha256:cd7bcd2e7a1e6f72052feb023c7f6b722205d3fcab7bbcbd2d1bfdab10b1e935 AS pinned-node
+#FROM node:24-bookworm AS pinned-node
+FROM node:25-bookworm AS pinned-node
+
+
 # --- Stage 1: Base ---
-FROM node:22-bookworm AS base
+FROM pinned-node AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN npm i -g pnpm
+RUN pnpm -v
 
 FROM base as source
+WORKDIR /app
 RUN git clone https://github.com/openclaw/openclaw.git /app
-RUN cd /app && git rev-parse HEAD > git-rev.txt && git log -n 20 > git-log.txt
+COPY patches/telegram_probe_timeout.patch ./ 
+RUN patch -p1 < telegram_probe_timeout.patch || echo "Patch failed, moving on..."
+RUN git rev-parse HEAD > git-rev.txt && git log -n 20 > git-log.txt
 
 # --- Stage 2: Prod Dependencies ---
 FROM base AS prod-deps
@@ -42,7 +52,7 @@ ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
 # --- Stage 4: Runner ---
-FROM node:22-bookworm AS runner
+FROM pinned-node AS runner
 WORKDIR /app
 
 # Install optional system packages
@@ -73,7 +83,7 @@ COPY --from=source /app/git-log.txt /app/git-log.txt
 # Install basic tools + Filebrowser + TTYD
 RUN curl -s "https://dl.google.com/go/go1.25.6.linux-amd64.tar.gz" | tar -C /usr/local -xz && ln -s /usr/local/go/bin/go /usr/bin/go
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nano vim build-essential procps file git ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nano vim build-essential procps file git ffmpeg python3-venv \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://github.com/filebrowser/filebrowser/releases/latest/download/linux-amd64-filebrowser.tar.gz | tar -xz -C /usr/local/bin filebrowser \

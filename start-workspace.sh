@@ -27,5 +27,6 @@ ttyd -p 8082 -W -t fontSize=14 bash &
 echo "Verifying and fixing configuration..."
 node dist/index.js doctor --fix
 echo "Starting OpenClaw..."
+export NODE_OPTIONS="--dns-result-order=ipv4first"
 exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured
 

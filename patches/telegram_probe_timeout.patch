@@ -1,0 +1,167 @@
+diff --git a/extensions/telegram/src/channel.ts b/extensions/telegram/src/channel.ts
+index a26dd956a..54614559c 100644
+--- a/extensions/telegram/src/channel.ts
++++ b/extensions/telegram/src/channel.ts
+@@ -373,6 +373,7 @@ export const telegramPlugin: ChannelPlugin<ResolvedTelegramAccount, TelegramProb
+         account.token,
+         timeoutMs,
+         account.config.proxy,
++        account.config.network,
+       ),
+     auditAccount: async ({ account, timeoutMs, probe, cfg }) => {
+       const groups =
+@@ -462,8 +463,9 @@ export const telegramPlugin: ChannelPlugin<ResolvedTelegramAccount, TelegramProb
+       try {
+         const probe = await getTelegramRuntime().channel.telegram.probeTelegram(
+           token,
+-          2500,
++          10000,
+           account.config.proxy,
++          account.config.network,
+         );
+         const username = probe.ok ? probe.bot?.username?.trim() : null;
+         if (username) {
+diff --git a/src/telegram/probe.ts b/src/telegram/probe.ts
+index f988733f0..f81605c94 100644
+--- a/src/telegram/probe.ts
++++ b/src/telegram/probe.ts
+@@ -1,8 +1,54 @@
+ import type { BaseProbeResult } from "../channels/plugins/types.js";
+ import { fetchWithTimeout } from "../utils/fetch-timeout.js";
+ import { makeProxyFetch } from "./proxy.js";
++import { resolveTelegramFetch } from "./fetch.js";
++import { createSubsystemLogger } from "../logging/subsystem.js";
++import { formatErrorMessage } from "../infra/errors.js";
++import type { TelegramNetworkConfig } from "../config/types.telegram.js";
+ 
+ const TELEGRAM_API_BASE = "https://api.telegram.org";
++const probeLogger = createSubsystemLogger("telegram/probe");
++
++/**
++ * Extract additional details from undici/network fetch errors.
++ * The "fetch failed" error from undici is often generic, but the cause may contain
++ * more specific information like DNS failures, connection refused, SSL errors, etc.
++ */
++function extractFetchErrorDetails(err: unknown): string {
++  if (!err || typeof err !== "object") {
++    return "";
++  }
++
++  const details: string[] = [];
++
++  // Check for cause chain (undici often nests the real error in .cause)
++  const cause = (err as { cause?: unknown }).cause;
++  if (cause) {
++    if (cause instanceof Error) {
++      details.push(`cause: ${cause.message}`);
++      const causeWithCode = cause as { code?: string };
++      if (causeWithCode.code) {
++        details.push(`cause.code: ${causeWithCode.code}`);
++      }
++    } else {
++      details.push(`cause: ${formatErrorMessage(cause)}`);
++    }
++  }
++
++  // Check for undici-specific error properties
++  const errObj = err as { code?: string; reason?: unknown; statusCode?: number };
++  if (errObj.code) {
++    details.push(`code: ${errObj.code}`);
++  }
++  if (errObj.statusCode) {
++    details.push(`statusCode: ${errObj.statusCode}`);
++  }
++  if (errObj.reason) {
++    details.push(`reason: ${formatErrorMessage(errObj.reason)}`);
++  }
++
++  return details.length > 0 ? ` [${details.join(", ")}]` : "";
++}
+ 
+ export type TelegramProbe = BaseProbeResult & {
+   status?: number | null;
+@@ -21,11 +67,18 @@ export async function probeTelegram(
+   token: string,
+   timeoutMs: number,
+   proxyUrl?: string,
++  network?: TelegramNetworkConfig,
+ ): Promise<TelegramProbe> {
+   const started = Date.now();
+-  const fetcher = proxyUrl ? makeProxyFetch(proxyUrl) : fetch;
++  // Use resolveTelegramFetch to apply network workarounds (e.g., autoSelectFamily for IPv6 issues)
++  // When using a proxy, we still apply network config to the underlying fetch
++  const fetcher = proxyUrl
++    ? resolveTelegramFetch(makeProxyFetch(proxyUrl), { network })
++    : resolveTelegramFetch(undefined, { network });
+   const base = `${TELEGRAM_API_BASE}/bot${token}`;
+-  const retryDelayMs = Math.max(50, Math.min(1000, timeoutMs));
++  // Use half of timeout as retry delay, with reasonable bounds
++  const retryDelayMs = Math.max(200, Math.min(timeoutMs / 2, 5000));
++  probeLogger.debug(`probeTelegram starting: timeout=${timeoutMs}ms, retryDelay=${retryDelayMs}ms, proxy=${proxyUrl ?? "none"}`);
+ 
+   const result: TelegramProbe = {
+     ok: false,
+@@ -39,12 +92,22 @@ export async function probeTelegram(
+     let fetchError: unknown = null;
+ 
+     // Retry loop for initial connection (handles network/DNS startup races)
++    const targetUrl = `${base}/getMe`;
++    const proxyInfo = proxyUrl ? ` via proxy ${proxyUrl}` : "";
+     for (let i = 0; i < 3; i++) {
++      probeLogger.debug(`getMe attempt ${i + 1}/3: fetching ${targetUrl}${proxyInfo}`);
+       try {
+-        meRes = await fetchWithTimeout(`${base}/getMe`, {}, timeoutMs, fetcher);
++        meRes = await fetchWithTimeout(targetUrl, {}, timeoutMs, fetcher);
++        probeLogger.debug(
++          `getMe attempt ${i + 1}/3: received response status=${meRes.status}, ok=${meRes.ok}`,
++        );
+         break;
+       } catch (err) {
+         fetchError = err;
++        const errDetails = extractFetchErrorDetails(err);
++        probeLogger.error(
++          `getMe attempt ${i + 1}/3 failed: ${formatErrorMessage(err)}${errDetails}`,
++        );
+         if (i < 2) {
+           await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+         }
+@@ -52,6 +115,10 @@ export async function probeTelegram(
+     }
+ 
+     if (!meRes) {
++      const errDetails = extractFetchErrorDetails(fetchError);
++      probeLogger.error(
++        `getMe failed after 3 attempts${proxyInfo}, throwing: ${formatErrorMessage(fetchError)}${errDetails}`,
++      );
+       throw fetchError;
+     }
+ 
+@@ -66,9 +133,13 @@ export async function probeTelegram(
+         supports_inline_queries?: boolean;
+       };
+     };
++    probeLogger.debug(`getMe response: ok=${meJson.ok}, status=${meRes.status}, description=${meJson.description}, result=${JSON.stringify(meJson.result)}`);
+     if (!meRes.ok || !meJson?.ok) {
+       result.status = meRes.status;
+       result.error = meJson?.description ?? `getMe failed (${meRes.status})`;
++      probeLogger.error(
++        `getMe failed: HTTP status=${meRes.status}, Telegram ok=${meJson.ok}, description=${meJson.description}`,
++      );
+       return { ...result, elapsedMs: Date.now() - started };
+     }
+ 
+@@ -108,8 +179,14 @@ export async function probeTelegram(
+     result.status = null;
+     result.error = null;
+     result.elapsedMs = Date.now() - started;
++    probeLogger.debug(`probeTelegram succeeded: botId=${result.bot?.id}, username=${result.bot?.username}`);
+     return result;
+   } catch (err) {
++    const errorMessage = formatErrorMessage(err);
++    const errDetails = extractFetchErrorDetails(err);
++    probeLogger.error(
++      `probeTelegram failed${proxyUrl ? ` via proxy ${proxyUrl}` : ""}: ${errorMessage}${errDetails}${err instanceof Error && err.stack ? `\nStack: ${err.stack}` : ""}`,
++    );
+     return {
+       ...result,
+       status: err instanceof Response ? err.status : result.status,
