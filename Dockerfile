@@ -15,7 +15,7 @@ RUN pnpm -v
 
 FROM base as source
 WORKDIR /app
-RUN git clone https://github.com/openclaw/openclaw.git /app
+RUN git clone https://github.com/openclaw/openclaw.git /app && git -C /app checkout $(git -C /app tag --sort=-version:refname | grep -vi 'beta' | head -n 1)
 COPY patches/telegram_probe_timeout.patch ./ 
 RUN patch -p1 < telegram_probe_timeout.patch || echo "Patch failed, moving on..."
 RUN git rev-parse HEAD > git-rev.txt && git log -n 20 > git-log.txt
