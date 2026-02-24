@@ -103,6 +103,7 @@ RUN npm install -g pnpm && npm install -g @google/gemini-cli
 COPY start-workspace.sh /app/start-workspace.sh
 COPY init-workspace.sh /app/init-workspace.sh
 COPY start-openclaw.sh /app/start-openclaw.sh
+COPY openclaw-supervisor.cjs /app/openclaw-supervisor.cjs
 RUN chmod +x /app/start-workspace.sh /app/init-workspace.sh /app/start-openclaw.sh
 
 # Create non-root user (node user exists in image)

@@ -73,9 +73,23 @@ The image runs as the **`node`** user. At startup, `start-workspace.sh`:
 
 1. Starts **Filebrowser** on port **8081**, serving `/home/node/.openclaw/workspace`. If `FILEBROWSER_BASE_URL` is set (e.g. `/workspace`), it is passed as `--baseURL`; otherwise Filebrowser serves at root. Optional `FILEBROWSER_EXTRA_ARGS` can add more flags. No auth by default (see [Security](#security)).
 2. Starts **ttyd** on port **8082**, offering a bash session in the browser.
-3. Starts the **OpenClaw gateway** on port **18789** (bind and port are configurable via the script if you customize it).
+3. Starts the **OpenClaw supervisor** on port **18789**. The supervisor:
+   - Runs `node dist/index.js doctor --fix` to validate and repair configuration.
+   - If the doctor step succeeds, starts the **OpenClaw gateway** on port **18789**.
+   - If the doctor step fails, or if the gateway exits, switches into a **safe mode** and serves a minimal web UI on port **18789** that shows startup logs and a “Restart pod” button.
 
 Persistent data lives under `/home/node/.openclaw` (config and workspace). Mount a volume there so state survives restarts.
+
+When the supervisor is in **safe mode**:
+
+- The container **stays running** and continues to serve:
+  - The safe-mode page on port **18789** (instead of the normal gateway API).
+  - Filebrowser on port **8081**.
+  - ttyd on port **8082**.
+- The safe-mode page:
+  - Shows whether the failure happened during `doctor` or `gateway` startup.
+  - Displays the most recent logs from both phases.
+  - Exposes a **“Restart pod”** button that calls `POST /restart`. This causes the main process (PID 1) to exit with a non-zero code so Kubernetes (with `restartPolicy: Always`) restarts the pod.
 
 ---
 
@@ -122,6 +136,33 @@ spec:
     - name: openclaw-data
       persistentVolumeClaim:
         claimName: openclaw-workspace-pvc  # one PVC per tenant
+```
+
+### Health probes (Kubernetes)
+
+To keep the pod marked as healthy even when OpenClaw is in **safe mode**, point liveness/readiness probes at the supervisor’s health endpoint on the gateway port:
+
+```yaml
+spec:
+  containers:
+    - name: openclaw-gateway
+      # ...
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: 18789
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: 18789
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        timeoutSeconds: 3
+        failureThreshold: 3
 ```
 
 ### Ingress / routing
@@ -177,7 +218,8 @@ Build-arg for the Dockerfile:
 | File / dir       | Purpose |
 |------------------|---------|
 | `Dockerfile`     | Multi-stage build: OpenClaw + Filebrowser + ttyd |
-| `start-workspace.sh` | Entrypoint: starts filebrowser (with optional `FILEBROWSER_BASE_URL` / `FILEBROWSER_EXTRA_ARGS`), ttyd, then OpenClaw gateway |
+| `start-workspace.sh` | Entrypoint: starts filebrowser (with optional `FILEBROWSER_BASE_URL` / `FILEBROWSER_EXTRA_ARGS`), ttyd, then the OpenClaw supervisor (doctor + gateway + safe mode UI) |
+| `openclaw-supervisor.cjs` | Node-based supervisor that runs `doctor --fix`, starts the gateway, and serves a safe-mode web UI (with restart button) if startup fails |
 | `build-docker.sh`    | Builds image, pushes to `OPENCLAW_IMAGE` (from env or default) |
 
 ---
